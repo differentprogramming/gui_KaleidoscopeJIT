@@ -141,6 +141,24 @@ std::string errbuf;
 //std::ostringstream *myout;
 llvm::raw_string_ostream *myerr;
 
+#ifdef _WIN32
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+
+extern "C" DLLEXPORT double putchard(double x) {
+    *myerr << (char)round(x);
+    return 0;
+}
+
+/// printd - printf that takes a double prints it as "%f\n", returning 0.
+extern "C" DLLEXPORT double printd(double X) {
+    char buf[30];
+    sprintf_s(buf, sizeof(buf)-1, "%f\n", X);
+    *myerr << buf;
+    return 0;
+}
 
 char buffer[10000];
 
@@ -289,9 +307,16 @@ enum Token {
     tok_def = -2,
     tok_extern = -3,
 
-    // primary
-    tok_identifier = -4,
-    tok_number = -5
+  // primary
+  tok_identifier = -4,
+  tok_number = -5,
+
+  // control
+  tok_if = -6,
+  tok_then = -7,
+  tok_else = -8,
+  tok_for = -9,
+  tok_in = -10
 };
 
 static std::string IdentifierStr; // Filled in if tok_identifier
@@ -310,12 +335,22 @@ static int gettok() {
         while (isalnum((LastChar = getchar())))
             IdentifierStr += LastChar;
 
-        if (IdentifierStr == "def")
-            return tok_def;
-        if (IdentifierStr == "extern")
-            return tok_extern;
-        return tok_identifier;
-    }
+    if (IdentifierStr == "def")
+      return tok_def;
+    if (IdentifierStr == "extern")
+      return tok_extern;
+    if (IdentifierStr == "if")
+      return tok_if;
+    if (IdentifierStr == "then")
+      return tok_then;
+    if (IdentifierStr == "else")
+      return tok_else;
+    if (IdentifierStr == "for")
+      return tok_for;
+    if (IdentifierStr == "in")
+      return tok_in;
+    return tok_identifier;
+  }
 
     if (isdigit(LastChar) || LastChar == '.') { // Number: [0-9.]+
         std::string NumStr;
@@ -408,12 +443,39 @@ namespace {
         Value* codegen() override;
     };
 
-    /// PrototypeAST - This class represents the "prototype" for a function,
-    /// which captures its name, and its argument names (thus implicitly the number
-    /// of arguments the function takes).
-    class PrototypeAST {
-        std::string Name;
-        std::vector<std::string> Args;
+/// IfExprAST - Expression class for if/then/else.
+class IfExprAST : public ExprAST {
+  std::unique_ptr<ExprAST> Cond, Then, Else;
+
+public:
+  IfExprAST(std::unique_ptr<ExprAST> Cond, std::unique_ptr<ExprAST> Then,
+            std::unique_ptr<ExprAST> Else)
+      : Cond(std::move(Cond)), Then(std::move(Then)), Else(std::move(Else)) {}
+
+  Value *codegen() override;
+};
+
+/// ForExprAST - Expression class for for/in.
+class ForExprAST : public ExprAST {
+  std::string VarName;
+  std::unique_ptr<ExprAST> Start, End, Step, Body;
+
+public:
+  ForExprAST(const std::string &VarName, std::unique_ptr<ExprAST> Start,
+             std::unique_ptr<ExprAST> End, std::unique_ptr<ExprAST> Step,
+             std::unique_ptr<ExprAST> Body)
+      : VarName(VarName), Start(std::move(Start)), End(std::move(End)),
+        Step(std::move(Step)), Body(std::move(Body)) {}
+
+  Value *codegen() override;
+};
+
+/// PrototypeAST - This class represents the "prototype" for a function,
+/// which captures its name, and its argument names (thus implicitly the number
+/// of arguments the function takes).
+class PrototypeAST {
+  std::string Name;
+  std::vector<std::string> Args;
 
     public:
         PrototypeAST(const std::string& Name, std::vector<std::string> Args)
@@ -541,6 +603,85 @@ static std::unique_ptr<ExprAST> ParseIdentifierExpr() {
     return std::make_unique<CallExprAST>(IdName, std::move(Args));
 }
 
+/// ifexpr ::= 'if' expression 'then' expression 'else' expression
+static std::unique_ptr<ExprAST> ParseIfExpr() {
+    Tokenizer.tokenize(); // eat the if.
+
+  // condition.
+  auto Cond = ParseExpression();
+  if (!Cond)
+    return nullptr;
+
+  if (Tokenizer.cur_token().token_number != TK_THEN)
+    return LogError("expected then");
+  Tokenizer.tokenize(); // eat the then
+
+  auto Then = ParseExpression();
+  if (!Then)
+    return nullptr;
+
+  if (Tokenizer.cur_token().token_number != TK_ELSE)
+    return LogError("expected else");
+
+  Tokenizer.tokenize();
+
+  auto Else = ParseExpression();
+  if (!Else)
+    return nullptr;
+
+  return std::make_unique<IfExprAST>(std::move(Cond), std::move(Then),
+                                      std::move(Else));
+}
+
+/// forexpr ::= 'for' identifier '=' expr ',' expr (',' expr)? 'in' expression
+static std::unique_ptr<ExprAST> ParseForExpr() {
+    Tokenizer.tokenize(); // eat the for.
+
+  if (Tokenizer.cur_token().token_number != TK_IDENT)
+    return LogError("expected identifier after for");
+
+  char buf[100];
+  Tokenizer.cur_token().get_text(buf, 100);
+  std::string IdName = buf;
+
+  Tokenizer.tokenize(); // eat identifier.
+
+  if (Tokenizer.cur_token().token_number != TK_EQUAL)
+    return LogError("expected '=' after for");
+  Tokenizer.tokenize(); // eat '='.
+
+  auto Start = ParseExpression();
+  if (!Start)
+    return nullptr;
+  if (Tokenizer.cur_token().token_number != TK_COMMA)
+    return LogError("expected ',' after for start value");
+  Tokenizer.tokenize();
+
+  auto End = ParseExpression();
+  if (!End)
+    return nullptr;
+
+  // The step value is optional.
+  std::unique_ptr<ExprAST> Step;
+  if (Tokenizer.cur_token().token_number == TK_COMMA) {
+    Tokenizer.tokenize();
+    Step = ParseExpression();
+    if (!Step)
+      return nullptr;
+  }
+
+  if (Tokenizer.cur_token().token_number != TK_DO)
+    return LogError("expected 'do' after for");
+  Tokenizer.tokenize(); // eat 'in'.
+
+  auto Body = ParseExpression();
+  if (!Body)
+    return nullptr;
+
+  return std::make_unique<ForExprAST>(IdName, std::move(Start), std::move(End),
+                                       std::move(Step), std::move(Body));
+}
+
 /// primary
 ///   ::= identifierexpr
 ///   ::= numberexpr
@@ -556,7 +697,10 @@ static std::unique_ptr<ExprAST> ParsePrimary() {
         return ParseNumberExpr();
     case TK_LP:
         return ParseParenExpr();
-    }
+  case TK_IF:
+    return ParseIfExpr();
+  case TK_TO:
+    return ParseForExpr();    }
 }
 
 /// binoprhs
@@ -751,11 +895,158 @@ Value *CallExprAST::codegen() {
     return Builder->CreateCall(CalleeF, ArgsV, "calltmp");
 }
 
-Function* PrototypeAST::codegen() {
-    // Make the function type:  double(double,double) etc.
-    std::vector<Type*> Doubles(Args.size(), Type::getDoubleTy(*TheContext));
-    FunctionType* FT =
-        FunctionType::get(Type::getDoubleTy(*TheContext), Doubles, false);
+Value *IfExprAST::codegen() {
+  Value *CondV = Cond->codegen();
+  if (!CondV)
+    return nullptr;
+
+  // Convert condition to a bool by comparing non-equal to 0.0.
+  CondV = Builder->CreateFCmpONE(
+      CondV, ConstantFP::get(*TheContext, APFloat(0.0)), "ifcond");
+
+  Function *TheFunction = Builder->GetInsertBlock()->getParent();
+
+  // Create blocks for the then and else cases.  Insert the 'then' block at the
+  // end of the function.
+  BasicBlock *ThenBB = BasicBlock::Create(*TheContext, "then", TheFunction);
+  BasicBlock *ElseBB = BasicBlock::Create(*TheContext, "else");
+  BasicBlock *MergeBB = BasicBlock::Create(*TheContext, "ifcont");
+
+  Builder->CreateCondBr(CondV, ThenBB, ElseBB);
+
+  // Emit then value.
+  Builder->SetInsertPoint(ThenBB);
+
+  Value *ThenV = Then->codegen();
+  if (!ThenV)
+    return nullptr;
+
+  Builder->CreateBr(MergeBB);
+  // Codegen of 'Then' can change the current block, update ThenBB for the PHI.
+  ThenBB = Builder->GetInsertBlock();
+
+  // Emit else block.
+  TheFunction->getBasicBlockList().push_back(ElseBB);
+  Builder->SetInsertPoint(ElseBB);
+
+  Value *ElseV = Else->codegen();
+  if (!ElseV)
+    return nullptr;
+
+  Builder->CreateBr(MergeBB);
+  // Codegen of 'Else' can change the current block, update ElseBB for the PHI.
+  ElseBB = Builder->GetInsertBlock();
+
+  // Emit merge block.
+  TheFunction->getBasicBlockList().push_back(MergeBB);
+  Builder->SetInsertPoint(MergeBB);
+  PHINode *PN = Builder->CreatePHI(Type::getDoubleTy(*TheContext), 2, "iftmp");
+
+  PN->addIncoming(ThenV, ThenBB);
+  PN->addIncoming(ElseV, ElseBB);
+  return PN;
+}
+
+// Output for-loop as:
+//   ...
+//   start = startexpr
+//   goto loop
+// loop:
+//   variable = phi [start, loopheader], [nextvariable, loopend]
+//   ...
+//   bodyexpr
+//   ...
+// loopend:
+//   step = stepexpr
+//   nextvariable = variable + step
+//   endcond = endexpr
+//   br endcond, loop, endloop
+// outloop:
+Value *ForExprAST::codegen() {
+  // Emit the start code first, without 'variable' in scope.
+  Value *StartVal = Start->codegen();
+  if (!StartVal)
+    return nullptr;
+
+  // Make the new basic block for the loop header, inserting after current
+  // block.
+  Function *TheFunction = Builder->GetInsertBlock()->getParent();
+  BasicBlock *PreheaderBB = Builder->GetInsertBlock();
+  BasicBlock *LoopBB = BasicBlock::Create(*TheContext, "loop", TheFunction);
+
+  // Insert an explicit fall through from the current block to the LoopBB.
+  Builder->CreateBr(LoopBB);
+
+  // Start insertion in LoopBB.
+  Builder->SetInsertPoint(LoopBB);
+
+  // Start the PHI node with an entry for Start.
+  PHINode *Variable =
+      Builder->CreatePHI(Type::getDoubleTy(*TheContext), 2, VarName);
+  Variable->addIncoming(StartVal, PreheaderBB);
+
+  // Within the loop, the variable is defined equal to the PHI node.  If it
+  // shadows an existing variable, we have to restore it, so save it now.
+  Value *OldVal = NamedValues[VarName];
+  NamedValues[VarName] = Variable;
+
+  // Emit the body of the loop.  This, like any other expr, can change the
+  // current BB.  Note that we ignore the value computed by the body, but don't
+  // allow an error.
+  if (!Body->codegen())
+    return nullptr;
+
+  // Emit the step value.
+  Value *StepVal = nullptr;
+  if (Step) {
+    StepVal = Step->codegen();
+    if (!StepVal)
+      return nullptr;
+  } else {
+    // If not specified, use 1.0.
+    StepVal = ConstantFP::get(*TheContext, APFloat(1.0));
+  }
+
+  Value *NextVar = Builder->CreateFAdd(Variable, StepVal, "nextvar");
+
+  // Compute the end condition.
+  Value *EndCond = End->codegen();
+  if (!EndCond)
+    return nullptr;
+
+  // Convert condition to a bool by comparing non-equal to 0.0.
+  EndCond = Builder->CreateFCmpONE(
+      EndCond, ConstantFP::get(*TheContext, APFloat(0.0)), "loopcond");
+
+  // Create the "after loop" block and insert it.
+  BasicBlock *LoopEndBB = Builder->GetInsertBlock();
+  BasicBlock *AfterBB =
+      BasicBlock::Create(*TheContext, "afterloop", TheFunction);
+
+  // Insert the conditional branch into the end of LoopEndBB.
+  Builder->CreateCondBr(EndCond, LoopBB, AfterBB);
+
+  // Any new code will be inserted in AfterBB.
+  Builder->SetInsertPoint(AfterBB);
+
+  // Add a new entry to the PHI node for the backedge.
+  Variable->addIncoming(NextVar, LoopEndBB);
+
+  // Restore the unshadowed variable.
+  if (OldVal)
+    NamedValues[VarName] = OldVal;
+  else
+    NamedValues.erase(VarName);
+
+  // for expr always returns 0.0.
+  return Constant::getNullValue(Type::getDoubleTy(*TheContext));
+}
+
+Function *PrototypeAST::codegen() {
+  // Make the function type:  double(double,double) etc.
+  std::vector<Type *> Doubles(Args.size(), Type::getDoubleTy(*TheContext));
+  FunctionType *FT =
+      FunctionType::get(Type::getDoubleTy(*TheContext), Doubles, false);
 
     Function* F =
         Function::Create(FT, Function::ExternalLinkage, Name, TheModule.get());
