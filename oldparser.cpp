@@ -137,13 +137,24 @@ namespace llvm {
 extern COutputWnd* output_window;
 extern CMFCStatusBar* status_bar;
 
+std::string errbuf;
+std::ostringstream *myout;
+llvm::raw_string_ostream *myerr;
+
+void flusherr()
+{
+    myerr->flush();
+    *myout << errbuf;
+    errbuf.clear();
+}
+
 char buffer[10000];
 
 using namespace llvm;
 using namespace llvm::orc;
 //My Lexer
 
-const char* Keywords[] = { "array"
+const char* Keywords[] = { "array" //0
 ,"and"
 ,"as"
 ,"ast"
@@ -153,7 +164,7 @@ const char* Keywords[] = { "array"
 ,"biop"
 ,"boxed"
 ,"break"
-,"byte"
+,"byte"     //10
 ,"cast"
 ,"call"
 ,"case"
@@ -163,7 +174,7 @@ const char* Keywords[] = { "array"
 ,"delete"
 ,"default"
 ,"do"
-,"continue"
+,"continue" //20
 ,"constant"
 ,"continuation"
 ,"ctree"
@@ -173,7 +184,7 @@ const char* Keywords[] = { "array"
 ,"endgenerator"
 ,"endswitch"
 ,"endif"
-,"endwhile"
+,"endwhile" //30
 ,"function"
 ,"generator"
 ,"if"
@@ -183,7 +194,7 @@ const char* Keywords[] = { "array"
 ,"list"
 ,"logical"
 ,"match"
-,"maybe"
+,"maybe"    //40
 ,"mod"
 ,"new"
 ,"nil"
@@ -193,7 +204,7 @@ const char* Keywords[] = { "array"
 ,"of"
 ,"or"
 ,"one"
-,"pointer"
+,"pointer"  //50
 ,"post"
 ,"pre"
 ,"real"
@@ -203,7 +214,7 @@ const char* Keywords[] = { "array"
 ,"sizeof"
 ,"string"
 ,"super"
-,"switch"
+,"switch"   //60
 ,"table"
 ,"then"
 ,"to"
@@ -213,7 +224,7 @@ const char* Keywords[] = { "array"
 ,"var"
 ,"where"
 ,"whether"
-,"while"
+,"while"    //70
 ,"bxor"
 ,"yes"
 ,"-"
@@ -223,7 +234,7 @@ const char* Keywords[] = { "array"
 ,"~"
 ,"++"
 ,"--"
-,"="
+,"="        //80
 ,"+="
 ,"-="
 , "*="
@@ -233,7 +244,7 @@ const char* Keywords[] = { "array"
 ,">>="
 ,"band="
 ,"bor="
-,"bxor="
+,"bxor="    //90
 ,"^"
 ,"<="
 ,">="
@@ -243,17 +254,18 @@ const char* Keywords[] = { "array"
 ,"not="
 ,"<=>"
 ,".."
-,"."
+,"."    //100
 ,"|"
 ,">>"
 ,"<<"
 ,"+"
+,"\\"
 ,"/"
 ,"?="
 ,"?"
 ,"#"
-,"#|"
-,"`"
+,"#|" //110
+,"`"    
 ,","
 ,"::"
 ,"("
@@ -262,8 +274,8 @@ const char* Keywords[] = { "array"
 ,"]"
 ,"{"
 ,"}"
-,"'"
-,":"
+,"'"//120
+,":"    
 ,";"
 ,nullptr
 };
@@ -466,7 +478,7 @@ static int GetTokPrecedence() {
 
 /// LogError* - These are little helper functions for error handling.
 std::unique_ptr<ExprAST> LogError(const char* Str) {
-    fprintf(stderr, "Error: %s\n", Str);
+    *myout << "Error: "<<Str<<"\n";
     return nullptr;
 }
 
@@ -829,9 +841,10 @@ static void InitializeModuleAndPassManager() {
 static void HandleDefinition() {
   if (auto FnAST = ParseDefinition()) {
     if (auto *FnIR = FnAST->codegen()) {
-      fprintf(stderr, "Read function definition:");
-      FnIR->print(errs());
-      fprintf(stderr, "\n");
+      *myout << "Read function definition:";
+      FnIR->print(*myerr);
+      flusherr();
+      *myout<<"\n";
       ExitOnErr(TheJIT->addModule(
           ThreadSafeModule(std::move(TheModule), std::move(TheContext))));
       InitializeModuleAndPassManager();
@@ -845,9 +858,10 @@ static void HandleDefinition() {
 static void HandleExtern() {
   if (auto ProtoAST = ParseExtern()) {
     if (auto *FnIR = ProtoAST->codegen()) {
-      fprintf(stderr, "Read extern: ");
-      FnIR->print(errs());
-      fprintf(stderr, "\n");
+      *myout << "Read extern: ";
+      FnIR->print(*myerr);
+      flusherr();
+      *myout << "\n";
       FunctionProtos[ProtoAST->getName()] = std::move(ProtoAST);
     }
   } else {
@@ -888,7 +902,7 @@ static void HandleTopLevelExpression() {
 /// top ::= definition | external | expression | ';'
 static void MainLoop() {
     while (true) {
-        fprintf(stderr, "ready> ");
+        *myout<< "ready> ";
         switch (Tokenizer.cur_token().token_number) {
         case TK_EOF:
             return;
@@ -914,32 +928,27 @@ static void MainLoop() {
 
 std::string mainish(LPSTR source)
 {
+    myout = new std::ostringstream;
+    errbuf.clear();
+    myerr = new raw_string_ostream(errbuf);
 
     // Prime the first token.
     Tokenizer.source.resize(strlen(source)+1);
+    Tokenizer.set_to_beginning_of_file();
     strncpy(&Tokenizer.source[0], source, Tokenizer.source.size());
 
     Tokenizer.tokenize();
 
-  InitializeNativeTarget();
-  InitializeNativeTargetAsmPrinter();
-  InitializeNativeTargetAsmParser();
-  TheJIT = ExitOnErr(KaleidoscopeJIT::Create());
-
-  InitializeModuleAndPassManager();
+ 
 
     // Run the main "interpreter loop" now.
     MainLoop();
-
-    std::string mystring;
-    raw_string_ostream myout(mystring);
+  
 
     // Print out all of the generated code.
-    TheModule->print(myout, nullptr);
-    myout.flush();
-
-
-    return mystring;
+    TheModule->print(*myerr, nullptr);
+    flusherr();
+    return  errbuf;
 }
 void init_parser()
 {
@@ -1039,5 +1048,12 @@ static enum class Associativity OpAssoc[TK_NUM_TOKENS];
     OpAssoc[TK_MINUS] = Associativity::Left;
     BiopPrecedence[TK_ASTERIX] = 40; // highest.
     OpAssoc[TK_ASTERIX] = Associativity::Left;
+
+    InitializeNativeTarget();
+    InitializeNativeTargetAsmPrinter();
+    InitializeNativeTargetAsmParser();
+    TheJIT = ExitOnErr(KaleidoscopeJIT::Create());
+
+    InitializeModuleAndPassManager();
 
 }
