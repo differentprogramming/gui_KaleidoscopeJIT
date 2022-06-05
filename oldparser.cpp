@@ -138,15 +138,9 @@ extern COutputWnd* output_window;
 extern CMFCStatusBar* status_bar;
 
 std::string errbuf;
-std::ostringstream *myout;
+//std::ostringstream *myout;
 llvm::raw_string_ostream *myerr;
 
-void flusherr()
-{
-    myerr->flush();
-    *myout << errbuf;
-    errbuf.clear();
-}
 
 char buffer[10000];
 
@@ -478,7 +472,7 @@ static int GetTokPrecedence() {
 
 /// LogError* - These are little helper functions for error handling.
 std::unique_ptr<ExprAST> LogError(const char* Str) {
-    *myout << "Error: "<<Str<<"\n";
+    *myerr << "Error: "<<Str<<"\n";
     return nullptr;
 }
 
@@ -532,7 +526,7 @@ static std::unique_ptr<ExprAST> ParseIdentifierExpr() {
             else
                 return nullptr;
 
-            if (Tokenizer.cur_token().token_number != TK_RP)
+            if (Tokenizer.cur_token().token_number == TK_RP)
                 break;
 
             if (Tokenizer.cur_token().token_number != TK_COMMA)
@@ -841,10 +835,9 @@ static void InitializeModuleAndPassManager() {
 static void HandleDefinition() {
   if (auto FnAST = ParseDefinition()) {
     if (auto *FnIR = FnAST->codegen()) {
-      *myout << "Read function definition:";
+      *myerr << "Read function definition:";
       FnIR->print(*myerr);
-      flusherr();
-      *myout<<"\n";
+      *myerr<<"\n";
       ExitOnErr(TheJIT->addModule(
           ThreadSafeModule(std::move(TheModule), std::move(TheContext))));
       InitializeModuleAndPassManager();
@@ -858,10 +851,9 @@ static void HandleDefinition() {
 static void HandleExtern() {
   if (auto ProtoAST = ParseExtern()) {
     if (auto *FnIR = ProtoAST->codegen()) {
-      *myout << "Read extern: ";
+      *myerr << "Read extern: ";
       FnIR->print(*myerr);
-      flusherr();
-      *myout << "\n";
+      *myerr << "\n";
       FunctionProtos[ProtoAST->getName()] = std::move(ProtoAST);
     }
   } else {
@@ -888,7 +880,7 @@ static void HandleTopLevelExpression() {
       // Get the symbol's address and cast it to the right type (takes no
       // arguments, returns a double) so we can call it as a native function.
       double (*FP)() = (double (*)())(intptr_t)ExprSymbol.getAddress();
-      fprintf(stderr, "Evaluated to %f\n", FP());
+      *myerr << "Evaluated to "<< FP()<<'\n';
 
       // Delete the anonymous expression module from the JIT.
       ExitOnErr(RT->remove());
@@ -902,7 +894,7 @@ static void HandleTopLevelExpression() {
 /// top ::= definition | external | expression | ';'
 static void MainLoop() {
     while (true) {
-        *myout<< "ready> ";
+        *myerr<< "ready> ";
         switch (Tokenizer.cur_token().token_number) {
         case TK_EOF:
             return;
@@ -928,7 +920,6 @@ static void MainLoop() {
 
 std::string mainish(LPSTR source)
 {
-    myout = new std::ostringstream;
     errbuf.clear();
     myerr = new raw_string_ostream(errbuf);
 
@@ -947,7 +938,7 @@ std::string mainish(LPSTR source)
 
     // Print out all of the generated code.
     TheModule->print(*myerr, nullptr);
-    flusherr();
+    myerr->flush();
     return  errbuf;
 }
 void init_parser()
