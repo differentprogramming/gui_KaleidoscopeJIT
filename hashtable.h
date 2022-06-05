@@ -493,7 +493,7 @@ const char *process_string(const char *&err, const char *source, int len);
 
 
 enum TOKENS {
-	TK_ARRAY,	//array
+	TK_ARRAY,	//0 array
 	TK_AND,		//and
 	TK_AS,		//as
 	TK_AST,		//ast
@@ -503,7 +503,7 @@ enum TOKENS {
 	TK_BIOP,	//biop
 	TK_BOXED,	//boxed
 	TK_BREAK,	//break
-	TK_BYTE,	//byte
+	TK_BYTE,	//10 byte
 	TK_CAST,	//cast
 	TK_CALL,	//call
 	TK_CASE,	//case
@@ -513,7 +513,7 @@ enum TOKENS {
 	TK_DELETE,	//delete
 	TK_DEFAULT,	//default
 	TK_DO,		//do
-	TK_CONTINUE,//continue
+	TK_CONTINUE,//20 continue
 	TK_CONSTANT,//constant
 	TK_CONTINUATION,//continuation
 	TK_CTREE,	//ctree
@@ -523,7 +523,7 @@ enum TOKENS {
 	TK_ENDGENERATOR,//endgenerator
 	TK_ENDSWITCH,	//endswitch
 	TK_ENDIF,		//endif
-	TK_ENDWHILE,	//endwhile
+	TK_ENDWHILE,	//30 endwhile
 	TK_FUNCTION,	//function
 	TK_GENERATOR,	//generator
 	TK_IF,			//if
@@ -533,7 +533,7 @@ enum TOKENS {
 	TK_LIST,		//list
 	TK_LOGICAL,		//logical	
 	TK_MATCH,		//match
-	TK_MAYBE,		//maybe
+	TK_MAYBE,		//40 maybe
 	TK_MOD,			//mod
 	TK_NEW,			//new
 	TK_NIL,			//nil
@@ -543,7 +543,7 @@ enum TOKENS {
 	TK_OF,			//of
 	TK_OR,			//or
 	TK_ONE,			//one
-	TK_POINTER,		//pointer
+	TK_POINTER,		//50 pointer
 	TK_POST,		//post
 	TK_PRE,			//pre
 	TK_REAL,		//real
@@ -553,7 +553,7 @@ enum TOKENS {
 	TK_SIZEOF,		//sizeof
 	TK_STRING,		//string
 	TK_SUPER,		//super
-	TK_SWITCH,		//switch
+	TK_SWITCH,		//60 switch
 	TK_TABLE,		//table
 	TK_THEN,		//then
 	TK_TO,			//to
@@ -563,7 +563,7 @@ enum TOKENS {
 	TK_VAR,			//var
 	TK_WHERE,		//where
 	TK_WHETHER,		//whether
-	TK_WHILE,		//while
+	TK_WHILE,		//70 while
 	TK_BXOR,		//bxor
 	TK_YES,			//yes
 	TK_MINUS,		//-
@@ -573,7 +573,7 @@ enum TOKENS {
 	TK_TILDE,		//~
 	TK_PLUSPLUS,	//++
 	TK_MINUSMINUS,	//--
-	TK_EQUAL,		//=
+	TK_EQUAL,		//80 =
 	TK_PLUSEQ,		//+=
 	TK_MINUSEQ,		//-=
 	TK_ASTERIXEQ,	//*=
@@ -583,7 +583,7 @@ enum TOKENS {
 	TK_GTGTEQ,		//>>=
 	TK_BANDEQ,		//band=
 	TK_BOREQ,		//bor=
-	TK_BXOREQ,		//bxor=
+	TK_BXOREQ,		//90 bxor=
 	TK_CAROT,		//^
 	TK_LE,			//<=
 	TK_GE,			//>=
@@ -593,7 +593,7 @@ enum TOKENS {
 	TK_NOTEQ,		//not=
 	TK_LTEQGT,		//<=>
 	TK_DOTDOT,		//..
-	TK_PERIOD,		//.
+	TK_PERIOD,		//100 .
 	TK_PIPE,		//|
 	TK_GTGT,		//>>
 	TK_LTLT,		//<<
@@ -603,7 +603,7 @@ enum TOKENS {
 	TK_QMARK,		//?
 	TK_BSLASH,		// \ blash
 	TK_HASH,		//#
-	TK_HASHPIPE,	//#|
+	TK_HASHPIPE,	//110 #|
 	TK_BQUOTE,		//`
 	TK_COMMA,		//,
 	TK_COLONCOLON,	//::
@@ -613,7 +613,7 @@ enum TOKENS {
 	TK_RB,			//]
 	TK_LBRACE,		//{
 	TK_RBRACE,		//}
-	TK_SINGLEQUOTE,	//'
+	TK_SINGLEQUOTE,	//120 '
 	TK_COLON,		//:
 	TK_SEMICOLON,	//;
 	TK_IDENT, //synthetic tokens come after the ones listed as keywords
@@ -623,7 +623,7 @@ enum TOKENS {
 	TK_WHITESPACE,
 	TK_COMMENT,
 	TK_MACROID,
-	TK_EOF,
+	TK_EOF,//130
 	TK_NUM_TOKENS
 };
 /*
